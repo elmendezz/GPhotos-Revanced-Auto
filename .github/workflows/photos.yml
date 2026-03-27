@@ -1,0 +1,31 @@
+name: Build Google Photos Only
+on:
+  workflow_dispatch: # Botón manual en GitHub
+
+jobs:
+  build:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "zulu"
+          java-version: "21"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Build Google Photos
+        # Aquí forzamos al script a usar solo nuestro nuevo archivo
+        run: ./build.sh photos.toml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GooglePhotos-ReVanced
+          path: build/*
