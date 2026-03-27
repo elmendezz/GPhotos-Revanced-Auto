@@ -1,20 +1,17 @@
-name: Google Photos ReVanced Builder
+name: Google Photos ReVanced Unificado
 
 on:
-  workflow_dispatch: # Permite ejecución manual
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     strategy:
       matrix:
         arch: [arm64-v8a, armeabi-v7a]
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java
@@ -23,63 +20,57 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Install Dependencies
+      - name: Descargar Herramientas ReVanced
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl wget
+          get_latest_asset() {
+            curl -s "https://api.github.com/repos/$1/releases/latest" | \
+            jq -r ".assets[] | select(.name | contains(\"$2\")) | .browser_download_url" | head -n 1
+          }
 
-      - name: Get ReVanced Tools
-        run: |
-          # Obtener última versión de CLI, Patches e Integrations
-          CLI_URL=$(curl -s https://api.github.com/repos/ReVanced/revanced-cli/releases/latest | jq -r '.assets[] | select(.name | endswith(".jar")) | .browser_download_url')
-          PATCHES_URL=$(curl -s https://api.github.com/repos/ReVanced/revanced-patches/releases/latest | jq -r '.assets[] | select(.name | endswith(".jar")) | .browser_download_url')
-          INTEGRATIONS_URL=$(curl -s https://api.github.com/repos/ReVanced/revanced-integrations/releases/latest | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url')
-          
-          wget -q -O revanced-cli.jar $CLI_URL
-          wget -q -O revanced-patches.jar $PATCHES_URL
-          wget -q -O revanced-integrations.apk $INTEGRATIONS_URL
+          CLI_URL=$(get_latest_asset "ReVanced/revanced-cli" ".jar")
+          PATCHES_URL=$(get_latest_asset "ReVanced/revanced-patches" ".jar")
+          INTEGRATIONS_URL=$(get_latest_asset "ReVanced/revanced-integrations" ".apk")
 
-      - name: Download Google Photos APK
-        run: |
-          # Nota: Para automatizar la descarga de Google Photos sin scripts complejos, 
-          # se recomienda usar una URL directa o un mirror compatible. 
-          # Aquí un ejemplo de cómo buscarías la versión compatible:
-          PACKAGE_NAME="com.google.android.apps.photos"
-          # Por propósitos de este YML unificado, intentamos bajar una versión estable genérica:
-          # Es recomendable subir el APK base a tu repo o usar una acción de descarga de APKMirror.
-          echo "Descargando APK base para ${{ matrix.arch }}..."
-          # Reemplazar con lógica de descarga preferida o subir el APK manualmente al repo
-          # wget -O base.apk <URL_DEL_APK>
+          echo "Descargando CLI de: $CLI_URL"
+          wget -q -O revanced-cli.jar "$CLI_URL"
+          wget -q -O revanced-patches.jar "$PATCHES_URL"
+          wget -q -O revanced-integrations.apk "$INTEGRATIONS_URL"
 
-      - name: Patch APK
+      - name: Preparar Keystore Temporal
         run: |
-          # Ejecución del patcher
+          keytool -genkey -v -keystore revanced.keystore -alias revanced -keyalg RSA -keysize 2048 -validity 10000 \
+          -dname "CN=elmendezz, OU=ReVanced, O=ReVanced, L=Tijuana, S=BC, C=MX" \
+          -storepass password -keypass password
+
+      - name: Descargar Google Photos Base
+        run: |
+          # NOTA: ReVanced requiere el APK base (no split/bundle) para parchear correctamente.
+          # Como Google Photos suele ser bundle, asegúrate de proveer un link directo a un APK "nodpi".
+          # Por ahora, este paso requiere que definas de dónde bajar el APK base.
+          echo "Buscando APK base para ${{ matrix.arch }}..."
+          # Ejemplo (Debes poner un link real a un APK compatible):
+          # wget -q -O base.apk "https://tu-link-directo-a-photos-nodpi.apk"
+
+      - name: Parchear y Firmar APK
+        run: |
+          # Usamos el CLI para parchear. 
+          # Se incluye la firma automática usando el keystore generado arriba.
           java -jar revanced-cli.jar patch \
             --patches revanced-patches.jar \
             --merge revanced-integrations.apk \
             --target com.google.android.apps.photos \
+            --keystore revanced.keystore \
+            --keystore-password password \
+            --keystore-entry-alias revanced \
+            --keystore-entry-password password \
             --out "Photos-ReVanced-${{ matrix.arch }}.apk" \
-            base.apk || echo "Error en el parcheo, revisa compatibilidad de versión"
+            base.apk
 
-      - name: Sign APK
-        run: |
-          # Generar una firma rápida para que sea instalable
-          uses: r0adkll/sign-android-release@v1
-          id: sign_app
-          with:
-            releaseDirectory: .
-            signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-            alias: ${{ secrets.ALIAS }}
-            keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-            keyPassword: ${{ secrets.KEY_PASSWORD }}
-          env:
-            BUILD_TOOLS_VERSION: "34.0.0"
-
-      - name: Upload to Release
+      - name: Subir a Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: photos-revanced-${{ github.run_id }}
-          files: |
-            Photos-ReVanced-${{ matrix.arch }}.apk
+          tag_name: build-${{ github.run_id }}
+          name: "Google Photos ReVanced (Build ${{ github.run_id }})"
+          files: Photos-ReVanced-${{ matrix.arch }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
