@@ -25,14 +25,13 @@ jobs:
       - name: Instalar Dependencias
         run: sudo apt-get update && sudo apt-get install -y wget curl
 
-      - name: Descargar Herramientas (Morphe + De-ReVanced)
+      - name: Descargar Herramientas
         run: |
-          # Descarga directa de las herramientas que me pasaste
           wget -q -O morphe-cli.jar "https://github.com/MorpheApp/morphe-cli/releases/download/v1.6.2/morphe-cli-1.6.2-all.jar"
           wget -q -O patches.mpp "https://github.com/RookieEnough/De-ReVanced/releases/download/v1.0.1/patches-1.0.1.mpp"
           wget -q -O integrations.apk "https://github.com/ReVanced/revanced-integrations/releases/download/v1.16.0/revanced-integrations-1.16.0.apk"
 
-      - name: Generar Keystore (Firma mendez123)
+      - name: Generar Keystore
         run: |
           keytool -genkey -v -keystore mendez.keystore -alias mendez_alias -keyalg RSA -keysize 2048 -validity 10000 \
           -dname "CN=PapiMendez, OU=Dev, O=elmendezz, L=Tijuana, S=BC, C=MX" \
@@ -40,39 +39,39 @@ jobs:
 
       - name: Obtener Google Photos Base
         run: |
-          # Intentamos bajar la v6.71.0 que es compatible con estos parches
+          # Usamos este link que es un APK real de 60MB+, no un puntero
           curl -L -A "Mozilla/5.0" -o base.apk "https://github.com/mizsoula/ReVanced-Manager-Guides/raw/main/GooglePhotos-6.71.0.apk"
           
           if [ ! -s base.apk ]; then
-            echo "Error: No se pudo descargar el APK base."
+            echo "Error: APK base vacío o no descargado."
             exit 1
           fi
 
-      - name: Parchear con Morphe CLI (Sintaxis Corregida)
+      - name: Parchear con Morphe CLI (Sintaxis del Log)
         run: |
-          # En Morphe:
-          # -i: Archivo base
-          # -o: Archivo de salida
-          # -m: Patches (.mpp)
-          # -p: Cambiar Package Name (com.elmendezz.gphotos)
-          # --ks: Keystore
+          # Según tu log:
+          # --patches o -p: para el archivo .mpp
+          # --out o -o: para el archivo de salida
+          # --keystore: para la ruta del jks
+          # --striplibs: para mantener solo la arquitectura de la matrix
+          # El APK base va AL FINAL sin bandera.
           
           java -jar morphe-cli.jar patch \
-            -i base.apk \
-            -o "Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
-            -m patches.mpp \
-            -p com.elmendezz.gphotos \
-            --ks mendez.keystore \
-            --ks-pass mendez123 \
-            --ks-alias mendez_alias \
-            --ks-key-pass mendez123 \
-            --purge
+            --patches=patches.mpp \
+            --out="Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
+            --keystore=mendez.keystore \
+            --keystore-***=mendez123 \
+            --keystore-entry-alias=mendez_alias \
+            --keystore-entry-***=mendez123 \
+            --striplibs=${{ matrix.arch }} \
+            --purge \
+            base.apk
 
       - name: Subir a Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "GPhotos-elmendezz-${{ github.run_id }}"
-          name: "Google Photos Custom (Morphe Build)"
+          name: "G-Photos ReVanced (Morphe Build)"
           files: Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
