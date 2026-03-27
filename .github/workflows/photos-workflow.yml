@@ -1,4 +1,4 @@
-name: "Google Photos ReVanced by elmendezz"
+name: "Google Photos ReVanced Unified Build"
 
 on:
   workflow_dispatch:
@@ -9,6 +9,7 @@ jobs:
     permissions:
       contents: write
     strategy:
+      fail-fast: false
       matrix:
         arch: [arm64-v8a, armeabi-v7a]
 
@@ -22,56 +23,52 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Instalar Dependencias
-        run: sudo apt-get update && sudo apt-get install -y wget curl
+      - name: System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget curl coreutils
 
-      - name: Descargar Herramientas
+      - name: Download Build Tools
         run: |
           wget -q -O morphe-cli.jar "https://github.com/MorpheApp/morphe-cli/releases/download/v1.6.2/morphe-cli-1.6.2-all.jar"
           wget -q -O patches.mpp "https://github.com/RookieEnough/De-ReVanced/releases/download/v1.0.1/patches-1.0.1.mpp"
           wget -q -O integrations.apk "https://github.com/ReVanced/revanced-integrations/releases/download/v1.16.0/revanced-integrations-1.16.0.apk"
 
-      - name: Generar Keystore
+      - name: Generate Signing Keystore
         run: |
           keytool -genkey -v -keystore mendez.keystore -alias mendez_alias -keyalg RSA -keysize 2048 -validity 10000 \
           -dname "CN=PapiMendez, OU=Dev, O=elmendezz, L=Tijuana, S=BC, C=MX" \
           -storepass mendez123 -keypass mendez123
 
-      - name: Obtener Google Photos Base
+      - name: Fetch Base APK
         run: |
-          # Usamos este link que es un APK real de 60MB+, no un puntero
-          curl -L -A "Mozilla/5.0" -o base.apk "https://github.com/mizsoula/ReVanced-Manager-Guides/raw/main/GooglePhotos-6.71.0.apk"
+          curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36" \
+          -o base.apk "https://github.com/mizsoula/ReVanced-Manager-Guides/raw/main/GooglePhotos-6.71.0.apk"
           
           if [ ! -s base.apk ]; then
-            echo "Error: APK base vacío o no descargado."
+            echo "Base APK download failed or file is empty."
             exit 1
           fi
 
-      - name: Parchear con Morphe CLI (Sintaxis del Log)
+      - name: Execute Morphe Patching
         run: |
-          # Según tu log:
-          # --patches o -p: para el archivo .mpp
-          # --out o -o: para el archivo de salida
-          # --keystore: para la ruta del jks
-          # --striplibs: para mantener solo la arquitectura de la matrix
-          # El APK base va AL FINAL sin bandera.
-          
           java -jar morphe-cli.jar patch \
             --patches=patches.mpp \
             --out="Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
             --keystore=mendez.keystore \
-            --keystore-***=mendez123 \
+            --keystore-password=mendez123 \
             --keystore-entry-alias=mendez_alias \
-            --keystore-entry-***=mendez123 \
+            --keystore-entry-password=mendez123 \
             --striplibs=${{ matrix.arch }} \
             --purge \
             base.apk
 
-      - name: Subir a Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "GPhotos-elmendezz-${{ github.run_id }}"
-          name: "G-Photos ReVanced (Morphe Build)"
+          tag_name: "GPhotos-Build-${{ github.run_id }}"
+          name: "Google Photos ReVanced ${{ matrix.arch }}"
           files: Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
