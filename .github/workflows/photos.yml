@@ -19,8 +19,9 @@ jobs:
           submodules: true
 
       - name: Build Google Photos
-        # Aquí forzamos al script a usar solo nuestro nuevo archivo
-        run: ./build.sh photos.toml
+        run: |
+          chmod +x build.sh
+          ./build.sh photos.toml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
