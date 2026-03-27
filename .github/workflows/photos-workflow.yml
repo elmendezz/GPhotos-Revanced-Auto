@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64-v8a, armeabi-v7a]
+        arch: [arm64-v8a]
 
     steps:
       - name: Checkout Repository
@@ -23,11 +23,10 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Install Tools (j-hc style)
+      - name: Install Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y wget curl jq coreutils
-          # Instalamos htmlq para parsear los links como lo hace el script de j-hc
           curl -L https://github.com/mgdm/htmlq/releases/latest/download/htmlq-x86_64-linux.tar.gz | tar xz
           sudo mv htmlq /usr/local/bin/
 
@@ -37,32 +36,42 @@ jobs:
           wget -q -O patches.mpp "https://github.com/RookieEnough/De-ReVanced/releases/download/v1.0.1/patches-1.0.1.mpp"
           wget -q -O integrations.apk "https://github.com/ReVanced/revanced-integrations/releases/download/v1.16.0/revanced-integrations-1.16.0.apk"
 
-      - name: Fetch APK from Uptodown (Expert Mode)
+      - name: Fetch Google Photos Base (Bypass Uptodown Store)
         run: |
-          # Simulación total de navegador para saltar el 403
           USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-          CHECK_URL="https://google-photos.en.uptodown.com/android/download"
           
-          echo "Extrayendo link de descarga real..."
-          # Paso 1: Obtener la página de descarga y capturar el data-url
-          DOWNLOAD_PAGE=$(curl -s -L -A "$USER_AGENT" "$CHECK_URL")
-          DOWNLOAD_ID=$(echo "$DOWNLOAD_PAGE" | htmlq "#detail-download-button" --attribute data-url)
+          # 1. Obtener el DATA-CODE interno de Google Photos en Uptodown
+          DATA_CODE=$(curl -s -L -A "$USER_AGENT" "https://google-photos.en.uptodown.com/android" | htmlq "#detail-app-name" --attribute data-code)
+          echo "App Data Code: $DATA_CODE"
+
+          # 2. Consultar el endpoint de versiones para obtener la URL de descarga de la v6.71.0
+          # Replicando la lógica de j-hc: apps/{code}/versions/1
+          VERSION_JSON=$(curl -s -L -A "$USER_AGENT" "https://google-photos.en.uptodown.com/android/apps/$DATA_CODE/versions/1")
           
-          if [ -z "$DOWNLOAD_ID" ]; then
-            echo "Error: No se pudo saltar la protección de Uptodown. Usando Mirror Secundario..."
-            # Mirror de respaldo directo (bypass)
+          # Extraer el versionURL de la versión específica 6.71.0.604250000
+          VERSION_URL=$(echo "$VERSION_JSON" | jq -r '.data[] | select(.version | contains("6.71.0")) | .versionURL')
+          
+          if [ -z "$VERSION_URL" ] || [ "$VERSION_URL" == "null" ]; then
+            echo "No se encontró la versión en el JSON. Usando mirror directo de emergencia."
             DOWNLOAD_URL="https://cdn.apktool.club/Google%20Photos_6.71.0.604250000_apkpure.com.apk"
           else
+            # 3. Obtener el ID final de descarga
+            FINAL_PAGE=$(curl -s -L -A "$USER_AGENT" "$VERSION_URL")
+            DOWNLOAD_ID=$(echo "$FINAL_PAGE" | htmlq "#detail-download-button" --attribute data-url)
             DOWNLOAD_URL="https://dw.uptodown.com/dwn/$DOWNLOAD_ID"
           fi
+
+          echo "Descargando APK real desde: $DOWNLOAD_URL"
           
-          echo "Descargando desde: $DOWNLOAD_URL"
-          curl -L -A "$USER_AGENT" -e "https://google-photos.en.uptodown.com/" -o base.apk "$DOWNLOAD_URL"
-          
-          # Validación de tamaño (Mínimo 50MB)
+          # Descarga con cabeceras de seguridad para evitar que nos encajen la Store
+          curl -L -A "$USER_AGENT" \
+               -H "Referer: https://google-photos.en.uptodown.com/" \
+               -o base.apk "$DOWNLOAD_URL"
+
           SIZE=$(stat -c%s base.apk)
+          echo "Tamaño final: $SIZE bytes"
           if [ $SIZE -lt 50000000 ]; then
-             echo "Fallo en la descarga. Tamaño insuficiente: $SIZE bytes"
+             echo "ERROR: Sigue bajando la Uptodown Store o un archivo corrupto."
              exit 1
           fi
 
@@ -72,9 +81,8 @@ jobs:
           -dname "CN=PapiMendez, OU=Dev, O=elmendezz, L=Tijuana, ST=BC, C=MX" \
           -storepass mendez123 -keypass mendez123
 
-      - name: Patch APK (com.elmendezz.gphotos)
+      - name: Patch APK
         run: |
-          # Solo parcheo de APK, nada de módulos Magisk.
           java -jar morphe-cli.jar patch \
             --patches=patches.mpp \
             --out="Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
@@ -90,7 +98,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "Build-${{ github.run_id }}"
-          name: "Google Photos ReVanced (Final)"
+          name: "Google Photos ReVanced"
           files: Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
