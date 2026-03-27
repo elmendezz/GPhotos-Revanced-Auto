@@ -1,4 +1,4 @@
-name: "Google Photos ReVanced Unified Build"
+name: "Google Photos ReVanced Ultra-Robust Build by elmendezz"
 
 on:
   workflow_dispatch:
@@ -17,41 +17,67 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java 17 (Zulu)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: System Dependencies
+      - name: Install Critical Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget curl coreutils
+          sudo apt-get install -y wget curl coreutils grep sed
 
-      - name: Download Build Tools
+      - name: Download Build Infrastructure
         run: |
+          echo "Descargando Morphe CLI v1.6.2..."
           wget -q -O morphe-cli.jar "https://github.com/MorpheApp/morphe-cli/releases/download/v1.6.2/morphe-cli-1.6.2-all.jar"
+          
+          echo "Descargando De-ReVanced Patches v1.0.1..."
           wget -q -O patches.mpp "https://github.com/RookieEnough/De-ReVanced/releases/download/v1.0.1/patches-1.0.1.mpp"
+          
+          echo "Descargando ReVanced Integrations v1.16.0..."
           wget -q -O integrations.apk "https://github.com/ReVanced/revanced-integrations/releases/download/v1.16.0/revanced-integrations-1.16.0.apk"
 
-      - name: Generate Signing Keystore
+      - name: Generate Production Keystore
         run: |
           keytool -genkey -v -keystore mendez.keystore -alias mendez_alias -keyalg RSA -keysize 2048 -validity 10000 \
-          -dname "CN=PapiMendez, OU=Dev, O=elmendezz, L=Tijuana, S=BC, C=MX" \
+          -dname "CN=PapiMendez, OU=Dev, O=elmendezz, L=Tijuana, ST=BC, C=MX" \
           -storepass mendez123 -keypass mendez123
 
-      - name: Fetch Base APK
+      - name: Download Google Photos Base (Force Complete Download)
         run: |
-          curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36" \
-          -o base.apk "https://github.com/mizsoula/ReVanced-Manager-Guides/raw/main/GooglePhotos-6.71.0.apk"
+          # Intentar descarga desde un mirror que permite hotlinking directo de APKs grandes
+          # El error anterior de 296k fue por un enlace roto de GitHub Raw.
+          echo "Iniciando descarga de Google Photos v6.71.0.604250000..."
           
-          if [ ! -s base.apk ]; then
-            echo "Base APK download failed or file is empty."
-            exit 1
+          # Intentamos con múltiples mirrors si el primero falla
+          URL_BASE="https://github.com/mizsoula/ReVanced-Manager-Guides/raw/main/GooglePhotos-6.71.0.apk"
+          
+          wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36" \
+               --continue \
+               --tries=5 \
+               --wait=2 \
+               -O base.apk "$URL_BASE"
+          
+          # Validación de tamaño: Si pesa menos de 30MB, el archivo está corrupto.
+          FILESIZE=$(stat -c%s "base.apk")
+          echo "Tamaño del archivo descargado: $FILESIZE bytes"
+          
+          if [ $FILESIZE -lt 30000000 ]; then
+            echo "Error: El APK descargado es demasiado pequeño ($FILESIZE bytes). Intentando mirror alternativo..."
+            curl -L -A "Mozilla/5.0" -o base.apk "https://dl.apktool.club/Google%20Photos_6.71.0.604250000_apkpure.com.apk"
+          fi
+          
+          if [ ! -s base.apk ] || [ $(stat -c%s "base.apk") -lt 30000000 ]; then
+             echo "FALLO CRÍTICO: No se pudo obtener un APK válido."
+             exit 1
           fi
 
-      - name: Execute Morphe Patching
+      - name: Execute Morphe Patching Process
         run: |
+          # Se eliminaron las banderas de rename ya que Morphe no las soporta por CLI.
+          # Se confía en que los parches de De-ReVanced hagan el trabajo interno.
           java -jar morphe-cli.jar patch \
             --patches=patches.mpp \
             --out="Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
@@ -63,12 +89,26 @@ jobs:
             --purge \
             base.apk
 
-      - name: Create GitHub Release
+      - name: Verify Resulting APK
+        run: |
+          if [ -f "Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" ]; then
+            echo "Build exitoso para ${{ matrix.arch }}"
+          else
+            echo "Error: El APK de salida no fue generado."
+            exit 1
+          fi
+
+      - name: Release Artifacts
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "GPhotos-Build-${{ github.run_id }}"
-          name: "Google Photos ReVanced ${{ matrix.arch }}"
+          tag_name: "GPhotos-elmendezz-Build-${{ github.run_id }}"
+          name: "G-Photos ReVanced (v${{ github.run_id }})"
+          body: |
+            ### G-Photos ReVanced Build
+            - **Arquitectura:** ${{ matrix.arch }}
+            - **CLI:** Morphe 1.6.2
+            - **Patches:** De-ReVanced 1.0.1
+            - **Cert:** mendez.keystore
           files: Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
