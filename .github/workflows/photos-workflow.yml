@@ -1,4 +1,4 @@
-name: "Google Photos ReVanced Ultra-Robust Build"
+name: "Google Photos ReVanced Expert Build"
 
 on:
   workflow_dispatch:
@@ -23,14 +23,48 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Install Dependencies
-        run: sudo apt-get update && sudo apt-get install -y wget curl coreutils
+      - name: Install Tools (j-hc style)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget curl jq coreutils
+          # Instalamos htmlq para parsear los links como lo hace el script de j-hc
+          curl -L https://github.com/mgdm/htmlq/releases/latest/download/htmlq-x86_64-linux.tar.gz | tar xz
+          sudo mv htmlq /usr/local/bin/
 
-      - name: Download Build Infrastructure
+      - name: Download Infrastructure
         run: |
           wget -q -O morphe-cli.jar "https://github.com/MorpheApp/morphe-cli/releases/download/v1.6.2/morphe-cli-1.6.2-all.jar"
           wget -q -O patches.mpp "https://github.com/RookieEnough/De-ReVanced/releases/download/v1.0.1/patches-1.0.1.mpp"
           wget -q -O integrations.apk "https://github.com/ReVanced/revanced-integrations/releases/download/v1.16.0/revanced-integrations-1.16.0.apk"
+
+      - name: Fetch APK from Uptodown (Expert Mode)
+        run: |
+          # Simulación total de navegador para saltar el 403
+          USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+          CHECK_URL="https://google-photos.en.uptodown.com/android/download"
+          
+          echo "Extrayendo link de descarga real..."
+          # Paso 1: Obtener la página de descarga y capturar el data-url
+          DOWNLOAD_PAGE=$(curl -s -L -A "$USER_AGENT" "$CHECK_URL")
+          DOWNLOAD_ID=$(echo "$DOWNLOAD_PAGE" | htmlq "#detail-download-button" --attribute data-url)
+          
+          if [ -z "$DOWNLOAD_ID" ]; then
+            echo "Error: No se pudo saltar la protección de Uptodown. Usando Mirror Secundario..."
+            # Mirror de respaldo directo (bypass)
+            DOWNLOAD_URL="https://cdn.apktool.club/Google%20Photos_6.71.0.604250000_apkpure.com.apk"
+          else
+            DOWNLOAD_URL="https://dw.uptodown.com/dwn/$DOWNLOAD_ID"
+          fi
+          
+          echo "Descargando desde: $DOWNLOAD_URL"
+          curl -L -A "$USER_AGENT" -e "https://google-photos.en.uptodown.com/" -o base.apk "$DOWNLOAD_URL"
+          
+          # Validación de tamaño (Mínimo 50MB)
+          SIZE=$(stat -c%s base.apk)
+          if [ $SIZE -lt 50000000 ]; then
+             echo "Fallo en la descarga. Tamaño insuficiente: $SIZE bytes"
+             exit 1
+          fi
 
       - name: Generate Keystore
         run: |
@@ -38,31 +72,9 @@ jobs:
           -dname "CN=PapiMendez, OU=Dev, O=elmendezz, L=Tijuana, ST=BC, C=MX" \
           -storepass mendez123 -keypass mendez123
 
-      - name: Fetch Google Photos Base (v6.71.0)
+      - name: Patch APK (com.elmendezz.gphotos)
         run: |
-          # Usando un mirror directo que permite wget/curl sin bloqueos de JS
-          echo "Descargando Google Photos desde Uptodown/Mirror alternativo..."
-          
-          # Intentamos descarga desde un repositorio de APKs persistente
-          # Si falla, usamos el mirror de APKPure/Uptodown emulado
-          curl -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" \
-          -o base.apk "https://cdn.apktool.club/Google%20Photos_6.71.0.604250000_apkpure.com.apk"
-          
-          # Verificación de integridad (Si es menor a 50MB, falló)
-          FILESIZE=$(stat -c%s "base.apk")
-          if [ $FILESIZE -lt 50000000 ]; then
-            echo "Reintentando con mirror secundario..."
-            wget -U "Mozilla/5.0" -O base.apk "https://github.com/noob-vanced/revanced-binaries/releases/download/v2024.03.15/GooglePhotos-6.71.0.apk"
-          fi
-          
-          if [ ! -s base.apk ] || [ $(stat -c%s "base.apk") -lt 50000000 ]; then
-            echo "ERROR: El APK no se descargó correctamente. Tamaño: $FILESIZE"
-            exit 1
-          fi
-
-      - name: Execute Morphe Patching
-        run: |
-          # Comando exacto para Morphe CLI 1.6.2
+          # Solo parcheo de APK, nada de módulos Magisk.
           java -jar morphe-cli.jar patch \
             --patches=patches.mpp \
             --out="Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
@@ -74,11 +86,11 @@ jobs:
             --purge \
             base.apk
 
-      - name: Create Release
+      - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "Build-${{ github.run_id }}"
-          name: "G-Photos ReVanced (elmendezz)"
+          name: "Google Photos ReVanced (Final)"
           files: Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
