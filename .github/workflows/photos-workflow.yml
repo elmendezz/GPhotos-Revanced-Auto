@@ -23,78 +23,56 @@ jobs:
           java-version: '17'
 
       - name: Instalar Dependencias
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget curl jq
+        run: sudo apt-get update && sudo apt-get install -y wget curl
 
       - name: Descargar Herramientas (Morphe + De-ReVanced)
         run: |
-          # CLI de Morphe (Soporta archivos .mpp)
-          echo "Descargando Morphe CLI..."
+          # Descarga directa de las herramientas que me pasaste
           wget -q -O morphe-cli.jar "https://github.com/MorpheApp/morphe-cli/releases/download/v1.6.2/morphe-cli-1.6.2-all.jar"
-          
-          # Patches de De-ReVanced (.mpp)
-          echo "Descargando De-ReVanced Patches..."
           wget -q -O patches.mpp "https://github.com/RookieEnough/De-ReVanced/releases/download/v1.0.1/patches-1.0.1.mpp"
-          
-          # Integrations (ReVanced original)
-          echo "Descargando Integrations..."
           wget -q -O integrations.apk "https://github.com/ReVanced/revanced-integrations/releases/download/v1.16.0/revanced-integrations-1.16.0.apk"
 
-      - name: Generar Keystore Personalizado
+      - name: Generar Keystore (Firma mendez123)
         run: |
           keytool -genkey -v -keystore mendez.keystore -alias mendez_alias -keyalg RSA -keysize 2048 -validity 10000 \
           -dname "CN=PapiMendez, OU=Dev, O=elmendezz, L=Tijuana, S=BC, C=MX" \
           -storepass mendez123 -keypass mendez123
 
-      - name: Obtener Google Photos Base (v6.71.0)
+      - name: Obtener Google Photos Base
         run: |
-          # Intentando descargar desde un mirror directo para evitar el bloqueo de APKMirror/Uptodown
-          # Usamos un User-Agent de Android para "pasar desapercibidos"
-          echo "Descargando APK original de Google Photos..."
-          
-          # URL de descarga directa (Versión estable nodpi)
-          # Si este link falla, puedes subir el base.apk a la raíz de tu repo y este paso se lo saltará.
-          if [ ! -f base.apk ]; then
-            curl -L -A "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/114.0 Firefox/114.0" \
-            -o base.apk "https://github.com/mizsoula/ReVanced-Manager-Guides/raw/main/GooglePhotos-6.71.0.apk"
-          fi
+          # Intentamos bajar la v6.71.0 que es compatible con estos parches
+          curl -L -A "Mozilla/5.0" -o base.apk "https://github.com/mizsoula/ReVanced-Manager-Guides/raw/main/GooglePhotos-6.71.0.apk"
           
           if [ ! -s base.apk ]; then
-            echo "Error: No se pudo obtener el APK base. Súbelo manualmente como base.apk"
+            echo "Error: No se pudo descargar el APK base."
             exit 1
           fi
 
-      - name: Parchear con Morphe CLI (com.elmendezz.gphotos)
+      - name: Parchear con Morphe CLI (Sintaxis Corregida)
         run: |
-          # Morphe usa sintaxis similar pero adaptada a .mpp
-          # Cambiamos el package name a com.elmendezz.gphotos
+          # En Morphe:
+          # -i: Archivo base
+          # -o: Archivo de salida
+          # -m: Patches (.mpp)
+          # -p: Cambiar Package Name (com.elmendezz.gphotos)
+          # --ks: Keystore
           
           java -jar morphe-cli.jar patch \
-            --patches patches.mpp \
-            --merge integrations.apk \
-            --target com.google.android.apps.photos \
-            --pkg-name com.elmendezz.gphotos \
-            --keystore mendez.keystore \
-            --keystore-password mendez123 \
-            --keystore-entry-alias mendez_alias \
-            --keystore-entry-password mendez123 \
-            --out "Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
-            base.apk
+            -i base.apk \
+            -o "Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk" \
+            -m patches.mpp \
+            -p com.elmendezz.gphotos \
+            --ks mendez.keystore \
+            --ks-pass mendez123 \
+            --ks-alias mendez_alias \
+            --ks-key-pass mendez123 \
+            --purge
 
-      - name: Subir APK a GitHub Releases
+      - name: Subir a Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "GPhotos-v${{ github.run_id }}"
-          name: "Google Photos ReVanced (Custom Package)"
-          body: |
-            ### Build de Google Photos ReVanced
-            - **Arquitectura:** ${{ matrix.arch }}
-            - **Package Name:** `com.elmendezz.gphotos`
-            - **CLI:** Morphe 1.6.2
-            - **Patches:** De-ReVanced 1.0.1
-            - **Firma:** mendez.keystore (mendez123)
-          files: |
-            Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk
+          tag_name: "GPhotos-elmendezz-${{ github.run_id }}"
+          name: "Google Photos Custom (Morphe Build)"
+          files: Photos-ReVanced-elmendezz-${{ matrix.arch }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
