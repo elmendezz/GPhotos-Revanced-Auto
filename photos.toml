@@ -1,0 +1,13 @@
+[GooglePhotos]
+enabled = true
+# 'both' generará tanto el APK suelto como el módulo de Magisk
+build-mode = "both"
+# 'both' aquí intentará generar versiones para arm64-v8a y arm-v7a
+arch = "both"
+# El script buscará la versión más reciente en estos links
+apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/photos/"
+uptodown-dlurl = "https://google-photos.en.uptodown.com/android"
+archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.apps.photos"
+
+# Opcional: Si quieres parches específicos o excluir algunos
+# excluded-patches = ["patch-a", "patch-b"]
